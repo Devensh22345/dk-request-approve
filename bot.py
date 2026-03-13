@@ -227,10 +227,12 @@ async def create_invite_link(_, m: Message):
         
         # Prepare message for link channel
         link_message = f"""
-**𝗬𝗢𝗨𝗥 𝗥𝗘𝗤𝗨𝗘𝗦𝗧𝗘𝗗 𝗔𝗡𝗜𝗠𝗘:** {chat_title}
+**𝗬𝗢𝗨𝗥 𝗥𝗘𝗤𝗨𝗘𝗦𝗧𝗘𝗗 𝗔𝗡𝗜𝗠𝗘:** 
+**{chat_title}**
+
 **𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗 𝗟𝗜𝗡𝗞:** 
-{link}
-{link}
+**{link}**
+**{link}**
         """
         
         # Send to link channel
