@@ -141,5 +141,101 @@ async def fcast(_, m: Message):
     await lel.edit(f"✅Successfully forwarded to `{success}` users.\n❌ Failed to `{failed}` users.\n👾 `{blocked}` Blocked users.\n👻 `{deactivated}` Deactivated users.")
 
 
+@app.on_message(filters.command("p") & filters.user(cfg.SUDO))
+async def create_invite_link(_, m: Message):
+    """
+    Creates invite links for channels/groups and sends them to the link channel
+    Usage: /p (send this command in the channel/group where bot is admin)
+    """
+    try:
+        # Check if bot is admin in the chat
+        chat = m.chat
+        bot_member = await app.get_chat_member(chat.id, "me")
+        
+        if bot_member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+            await m.reply_text("❌ I need to be an admin in this chat to create invite links!")
+            return
+        
+        # Check if link channel is configured
+        if not hasattr(cfg, 'LINK_CHANNEL') or not cfg.LINK_CHANNEL:
+            await m.reply_text("❌ LINK_CHANNEL is not configured in configs.py!")
+            return
+        
+        # Create invite link based on chat type
+        if chat.type in [enums.ChatType.CHANNEL]:
+            # For channels - create join request link
+            try:
+                # First, ensure bot has permission to invite users
+                invite_link = await app.create_chat_invite_link(
+                    chat.id,
+                    creates_join_request=True,
+                    name=f"Link created by {m.from_user.first_name}"
+                )
+                link_type = "Channel (Join Request)"
+                link = invite_link.invite_link
+            except Exception as e:
+                await m.reply_text(f"❌ Failed to create channel invite link: {str(e)}")
+                return
+                
+        elif chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+            # For groups - create normal invite link
+            try:
+                invite_link = await app.create_chat_invite_link(
+                    chat.id,
+                    name=f"Link created by {m.from_user.first_name}"
+                )
+                link_type = "Group"
+                link = invite_link.invite_link
+            except Exception as e:
+                await m.reply_text(f"❌ Failed to create group invite link: {str(e)}")
+                return
+        else:
+            await m.reply_text("❌ This command can only be used in groups or channels!")
+            return
+        
+        # Get chat information
+        chat_info = await app.get_chat(chat.id)
+        chat_title = chat_info.title
+        chat_username = f"@{chat_info.username}" if chat_info.username else "No username"
+        
+        # Prepare message for link channel
+        link_message = f"""
+🔗 **New Invite Link Created**
+
+📢 **Chat:** {chat_title}
+📝 **Type:** {link_type}
+🆔 **ID:** `{chat.id}`
+🌐 **Username:** {chat_username}
+👤 **Created by:** {m.from_user.mention}
+
+**Link:** {link}
+        """
+        
+        # Send to link channel
+        try:
+            await app.send_message(
+                cfg.LINK_CHANNEL,
+                link_message,
+                disable_web_page_preview=True
+            )
+            
+            # Send confirmation to the user
+            await m.reply_text(
+                f"✅ **Invite link created and sent to link channel!**\n\n"
+                f"📢 **Chat:** {chat_title}\n"
+                f"🔗 **Link:** {link}",
+                disable_web_page_preview=True
+            )
+            
+        except Exception as e:
+            await m.reply_text(f"❌ Failed to send to link channel: {str(e)}")
+            
+    except errors.ChatAdminRequired:
+        await m.reply_text("❌ I need to be an admin in this chat to create invite links!")
+    except Exception as e:
+        await m.reply_text(f"❌ Error: {str(e)}")
+        print(f"Error in /p command: {e}")
+
+
 print("I'm Alive Now!")
 app.run()
