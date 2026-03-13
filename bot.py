@@ -161,6 +161,18 @@ async def create_invite_link(_, m: Message):
             await m.reply_text("❌ LINK_CHANNEL is not configured in configs.py!")
             return
         
+        # Get user info safely
+        creator_name = "Unknown"
+        creator_mention = "Unknown User"
+        
+        if m.from_user:
+            creator_name = m.from_user.first_name
+            creator_mention = m.from_user.mention
+        elif m.sender_chat:
+            # If sent from a channel/anonymously
+            creator_name = m.sender_chat.title
+            creator_mention = f"@{m.sender_chat.username}" if m.sender_chat.username else m.sender_chat.title
+        
         # Create invite link based on chat type
         if chat.type in [enums.ChatType.CHANNEL]:
             # For channels - create join request link
@@ -169,7 +181,7 @@ async def create_invite_link(_, m: Message):
                 invite_link = await app.create_chat_invite_link(
                     chat.id,
                     creates_join_request=True,
-                    name=f"Link created by {m.from_user.first_name}"
+                    name=f"Link created by {creator_name}"
                 )
                 link_type = "Channel (Join Request)"
                 link = invite_link.invite_link
@@ -182,7 +194,7 @@ async def create_invite_link(_, m: Message):
             try:
                 invite_link = await app.create_chat_invite_link(
                     chat.id,
-                    name=f"Link created by {m.from_user.first_name}"
+                    name=f"Link created by {creator_name}"
                 )
                 link_type = "Group"
                 link = invite_link.invite_link
@@ -206,7 +218,7 @@ async def create_invite_link(_, m: Message):
 📝 **Type:** {link_type}
 🆔 **ID:** `{chat.id}`
 🌐 **Username:** {chat_username}
-👤 **Created by:** {m.from_user.mention}
+👤 **Created by:** {creator_mention}
 
 **Link:** {link}
         """
