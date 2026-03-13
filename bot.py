@@ -141,7 +141,7 @@ async def fcast(_, m: Message):
     await lel.edit(f"✅Successfully forwarded to `{success}` users.\n❌ Failed to `{failed}` users.\n👾 `{blocked}` Blocked users.\n👻 `{deactivated}` Deactivated users.")
 
 
-@app.on_message(filters.command("p") 
+@app.on_message(filters.command("p"))
 async def create_invite_link(_, m: Message):
     """
     Creates invite links for channels/groups and sends them to the link channel
