@@ -140,6 +140,86 @@ async def fcast(_, m: Message):
 
     await lel.edit(f"✅Successfully forwarded to `{success}` users.\n❌ Failed to `{failed}` users.\n👾 `{blocked}` Blocked users.\n👻 `{deactivated}` Deactivated users.")
 
+@app.on_message(filters.command("s"))
+async def start_forwarding(_, m: Message):
+    """
+    Starts forwarding messages from source channel to current chat
+    Usage: /s (send in the target channel/group)
+    """
+    try:
+        # Check if source channel is configured
+        if not hasattr(cfg, 'SOURCE_CHANNEL') or not cfg.SOURCE_CHANNEL:
+            await m.reply_text("❌ SOURCE_CHANNEL is not configured in configs.py!")
+            return
+        
+        # Check if bot is admin in target chat
+        target_chat = m.chat
+        try:
+            bot_member = await app.get_chat_member(target_chat.id, "me")
+            if bot_member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+                await m.reply_text("❌ I need to be an admin in this chat to forward messages!")
+                return
+        except:
+            await m.reply_text("❌ Failed to check admin status!")
+            return
+        
+        # Get source channel info
+        try:
+            source_chat = await app.get_chat(cfg.SOURCE_CHANNEL)
+        except Exception as e:
+            await m.reply_text(f"❌ Cannot access source channel: {str(e)}")
+            return
+        
+        status_msg = await m.reply_text(
+            f"🔄 **Starting to forward messages from {source_chat.title}**\n\n"
+            f"📢 **Target:** {target_chat.title}\n"
+            f"⏳ **Listening for new messages...**\n\n"
+            f"`Send /stop to stop forwarding`"
+        )
+        
+        # Store forwarding state
+        if not hasattr(app, "forwarding_tasks"):
+            app.forwarding_tasks = {}
+        
+        # Stop any existing forwarding for this chat
+        if target_chat.id in app.forwarding_tasks:
+            app.forwarding_tasks[target_chat.id] = False
+            await asyncio.sleep(1)
+        
+        # Set forwarding flag
+        app.forwarding_tasks[target_chat.id] = True
+        
+        # Create message handler for forwarding
+        @app.on_message(filters.chat(cfg.SOURCE_CHANNEL))
+        async def forward_messages(client, message: Message):
+            try:
+                # Check if forwarding is still active for this target
+                if not app.forwarding_tasks.get(target_chat.id, False):
+                    return
+                
+                # Forward message without forward tag
+                await copy_message_without_forward(client, target_chat.id, message)
+                
+            except Exception as e:
+                print(f"Error forwarding message: {e}")
+        
+        # Store the handler for later removal
+        app.forwarding_tasks[f"handler_{target_chat.id}"] = forward_messages
+        
+        # Wait for stop command
+        while app.forwarding_tasks.get(target_chat.id, False):
+            await asyncio.sleep(1)
+        
+        # Remove handler
+        app.remove_handler(forward_messages, filters.chat(cfg.SOURCE_CHANNEL))
+        await status_msg.edit(f"✅ **Stopped forwarding messages to {target_chat.title}**")
+        
+    except Exception as e:
+        await m.reply_text(f"❌ Error: {str(e)}")
+        print(f"Error in /s command: {e}")
+
+
+
 
 @app.on_message(filters.command("p"))
 async def create_invite_link(_, m: Message):
