@@ -144,10 +144,137 @@ async def fcast(_, m: Message):
 #----------------------------------------------------------------------------------send msg ---------------------------------------------------------------------
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-@app.on_message(filters.command("s"))
-async def copy_channel_messages(_, m: Message):
+@app.on_message(filters.command("savemsg"))
+async def save_source_messages(_, m: Message):
     """
-    Copies all messages from source channel to current chat
+    Save messages from source channel to database
+    Usage: /savemsg (send in source channel)
+    """
+    try:
+        chat = m.chat
+        
+        # Check if this is the source channel
+        if chat.id != cfg.SOURCE_CHANNEL:
+            await m.reply_text("❌ This command can only be used in the source channel!")
+            return
+        
+        # Clear previous messages
+        clear_messages()
+        
+        processing = await m.reply_text("🔄 **Saving messages from source channel...**")
+        
+        saved_count = 0
+        message_count = 0
+        
+        # Get last 100 messages (or adjust limit)
+        async for message in app.get_chat_history(chat.id, limit=100):
+            message_count += 1
+            try:
+                # Prepare message data
+                message_data = {
+                    "message_id": message.id,
+                    "chat_id": chat.id,
+                    "date": message.date.isoformat() if message.date else None,
+                }
+                
+                # Store message content based on type
+                if message.text:
+                    message_data["type"] = "text"
+                    message_data["text"] = message.text
+                    if message.entities:
+                        message_data["entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.entities]
+                
+                elif message.photo:
+                    message_data["type"] = "photo"
+                    message_data["file_id"] = message.photo.file_id
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                elif message.sticker:
+                    message_data["type"] = "sticker"
+                    message_data["file_id"] = message.sticker.file_id
+                    message_data["emoji"] = message.sticker.emoji
+                
+                elif message.animation:
+                    message_data["type"] = "animation"
+                    message_data["file_id"] = message.animation.file_id
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                elif message.video:
+                    message_data["type"] = "video"
+                    message_data["file_id"] = message.video.file_id
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                elif message.document:
+                    message_data["type"] = "document"
+                    message_data["file_id"] = message.document.file_id
+                    message_data["file_name"] = message.document.file_name
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                # Save to database
+                if save_message(message_data):
+                    saved_count += 1
+                
+            except Exception as e:
+                print(f"Error saving message {message.id}: {e}")
+        
+        await processing.edit_text(
+            f"✅ **Messages saved successfully!**\n\n"
+            f"📊 **Statistics:**\n"
+            f"📝 Messages processed: {message_count}\n"
+            f"💾 Messages saved: {saved_count}"
+        )
+        
+    except Exception as e:
+        await m.reply_text(f"❌ Error: {str(e)}")
+
+#-------------------------------------------------------------------------
+@app.on_message(filters.command("s"))
+async def send_stored_messages(_, m: Message):
+    """
+    Sends stored messages from database to current chat
     Usage: /s (send in target group/channel where bot is admin)
     """
     try:
@@ -161,67 +288,49 @@ async def copy_channel_messages(_, m: Message):
             await m.delete()
             return
         
-        # Check if source channel is configured
-        if not hasattr(cfg, 'SOURCE_CHANNEL') or not cfg.SOURCE_CHANNEL:
-            await m.reply_text("❌ SOURCE_CHANNEL is not configured in configs.py!")
+        # Get stored messages from database
+        stored_messages = get_all_messages()
+        
+        if not stored_messages:
+            await m.reply_text("❌ No messages found in database! Use /savemsg in source channel first.")
             await asyncio.sleep(5)
             await m.delete()
             return
         
         # Send processing message
-        processing_msg = await m.reply_text("🔄 **Copying messages from source channel...**")
+        processing_msg = await m.reply_text(f"🔄 **Sending {len(stored_messages)} stored messages...**")
         
-        try:
-            # Get source channel info
-            source_chat = await app.get_chat(cfg.SOURCE_CHANNEL)
-            
-            # Count messages
-            message_count = 0
-            success_count = 0
-            failed_count = 0
-            
-            # Get all messages from source channel
-            async for message in app.get_chat_history(source_chat.id, limit=1000):  # Adjust limit as needed
-                message_count += 1
+        success_count = 0
+        failed_count = 0
+        
+        # Send each stored message
+        for msg_data in stored_messages:
+            try:
+                await send_stored_message(msg_data, chat.id)
+                success_count += 1
+                await asyncio.sleep(1)  # Delay to avoid flood
+                
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
                 try:
-                    # Copy message without forward tag
-                    await copy_message_without_forward(message, chat.id)
+                    await send_stored_message(msg_data, chat.id)
                     success_count += 1
-                    
-                    # Small delay to avoid flood limits
-                    await asyncio.sleep(0.5)
-                    
-                except FloodWait as e:
-                    # Handle flood wait
-                    await asyncio.sleep(e.value)
-                    # Retry the message
-                    try:
-                        await copy_message_without_forward(message, chat.id)
-                        success_count += 1
-                    except:
-                        failed_count += 1
-                        
-                except Exception as e:
-                    print(f"Failed to copy message {message.id}: {e}")
+                except:
                     failed_count += 1
-            
-            # Send final summary
-            await processing_msg.edit_text(
-                f"✅ **Copying completed!**\n\n"
-                f"📊 **Statistics:**\n"
-                f"📝 Total messages: {message_count}\n"
-                f"✅ Successfully copied: {success_count}\n"
-                f"❌ Failed: {failed_count}\n"
-                f"📢 Source: {source_chat.title}\n"
-                f"🎯 Target: {chat.title}"
-            )
-            
-        except errors.ChannelInvalid:
-            await processing_msg.edit_text("❌ Invalid source channel! Make sure bot is a member of the source channel.")
-        except errors.ChatAdminRequired:
-            await processing_msg.edit_text("❌ Bot needs to be admin in source channel to read messages!")
-        except Exception as e:
-            await processing_msg.edit_text(f"❌ Error accessing source channel: {str(e)}")
+                    
+            except Exception as e:
+                print(f"Failed to send message: {e}")
+                failed_count += 1
+        
+        # Send final summary
+        await processing_msg.edit_text(
+            f"✅ **Sending completed!**\n\n"
+            f"📊 **Statistics:**\n"
+            f"📝 Total messages: {len(stored_messages)}\n"
+            f"✅ Successfully sent: {success_count}\n"
+            f"❌ Failed: {failed_count}\n"
+            f"🎯 Target: {chat.title}"
+        )
         
         # Auto delete command after completion
         await asyncio.sleep(10)
@@ -234,177 +343,117 @@ async def copy_channel_messages(_, m: Message):
         await m.delete()
 
 
-async def copy_message_without_forward(message: Message, target_chat_id: int):
+async def send_stored_message(msg_data: dict, target_chat_id: int):
     """
-    Helper function to copy message without forward tag
-    Supports: text, media, stickers, premium emojis
+    Send a stored message to target chat
     """
-    try:
-        # Text message with entities (including premium emojis)
-        if message.text or message.caption:
-            text = message.text or message.caption
-            entities = message.entities or message.caption_entities
+    msg_type = msg_data.get("type")
+    
+    # Text message
+    if msg_type == "text":
+        text = msg_data.get("text")
+        entities = msg_data.get("entities")
+        
+        # Reconstruct entities if they exist
+        if entities:
+            message_entities = []
+            for e in entities:
+                if e["type"] == "custom_emoji":
+                    message_entities.append(
+                        enums.MessageEntity(
+                            type=enums.MessageEntityType.CUSTOM_EMOJI,
+                            offset=e["offset"],
+                            length=e["length"],
+                            custom_emoji_id=e["custom_emoji_id"]
+                        )
+                    )
+                else:
+                    message_entities.append(
+                        enums.MessageEntity(
+                            type=e["type"],
+                            offset=e["offset"],
+                            length=e["length"],
+                            url=e.get("url"),
+                            user_id=e.get("user_id")
+                        )
+                    )
             
-            if message.media:
-                # Media with caption
-                await message.copy(
-                    target_chat_id,
-                    caption=text,
-                    caption_entities=entities,
-                    parse_mode=enums.ParseMode.HTML
-                )
-            else:
-                # Plain text message
-                await app.send_message(
-                    target_chat_id,
-                    text=text,
-                    entities=entities,
-                    parse_mode=enums.ParseMode.HTML
-                )
-        
-        # Sticker
-        elif message.sticker:
-            await app.send_sticker(
+            await app.send_message(
                 target_chat_id,
-                message.sticker.file_id
+                text=text,
+                entities=message_entities
             )
+        else:
+            await app.send_message(target_chat_id, text)
+    
+    # Photo with caption
+    elif msg_type == "photo":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
         
-        # Animation (GIF)
-        elif message.animation:
-            await app.send_animation(
-                target_chat_id,
-                message.animation.file_id,
-                caption=message.caption,
-                caption_entities=message.caption_entities
-            )
-        
-        # Video
-        elif message.video:
-            await app.send_video(
-                target_chat_id,
-                message.video.file_id,
-                caption=message.caption,
-                caption_entities=message.caption_entities,
-                duration=message.video.duration,
-                width=message.video.width,
-                height=message.video.height,
-                thumb=message.video.thumbs[0].file_id if message.video.thumbs else None
-            )
-        
-        # Photo
-        elif message.photo:
+        if caption_entities:
             await app.send_photo(
                 target_chat_id,
-                message.photo.file_id,
-                caption=message.caption,
-                caption_entities=message.caption_entities
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
             )
+        else:
+            await app.send_photo(target_chat_id, file_id, caption=caption)
+    
+    # Sticker
+    elif msg_type == "sticker":
+        file_id = msg_data.get("file_id")
+        await app.send_sticker(target_chat_id, file_id)
+    
+    # Animation/GIF
+    elif msg_type == "animation":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
         
-        # Document
-        elif message.document:
+        if caption_entities:
+            await app.send_animation(
+                target_chat_id,
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
+            )
+        else:
+            await app.send_animation(target_chat_id, file_id, caption=caption)
+    
+    # Video
+    elif msg_type == "video":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
+        
+        if caption_entities:
+            await app.send_video(
+                target_chat_id,
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
+            )
+        else:
+            await app.send_video(target_chat_id, file_id, caption=caption)
+    
+    # Document
+    elif msg_type == "document":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
+        
+        if caption_entities:
             await app.send_document(
                 target_chat_id,
-                message.document.file_id,
-                caption=message.caption,
-                caption_entities=message.caption_entities
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
             )
-        
-        # Audio
-        elif message.audio:
-            await app.send_audio(
-                target_chat_id,
-                message.audio.file_id,
-                caption=message.caption,
-                caption_entities=message.caption_entities,
-                duration=message.audio.duration,
-                performer=message.audio.performer,
-                title=message.audio.title
-            )
-        
-        # Voice
-        elif message.voice:
-            await app.send_voice(
-                target_chat_id,
-                message.voice.file_id,
-                caption=message.caption,
-                caption_entities=message.caption_entities,
-                duration=message.voice.duration
-            )
-        
-        # Video Note
-        elif message.video_note:
-            await app.send_video_note(
-                target_chat_id,
-                message.video_note.file_id,
-                duration=message.video_note.duration,
-                length=message.video_note.length
-            )
-        
-        # Poll
-        elif message.poll:
-            await app.send_poll(
-                target_chat_id,
-                question=message.poll.question,
-                options=[opt.text for opt in message.poll.options],
-                is_anonymous=message.poll.is_anonymous,
-                type=message.poll.type,
-                allows_multiple_answers=message.poll.allows_multiple_answers,
-                correct_option_id=message.poll.correct_option_id,
-                explanation=message.poll.explanation,
-                explanation_entities=message.poll.explanation_entities,
-                open_period=message.poll.open_period,
-                close_date=message.poll.close_date
-            )
-        
-        # Contact
-        elif message.contact:
-            await app.send_contact(
-                target_chat_id,
-                phone_number=message.contact.phone_number,
-                first_name=message.contact.first_name,
-                last_name=message.contact.last_name,
-                vcard=message.contact.vcard
-            )
-        
-        # Location
-        elif message.location:
-            await app.send_location(
-                target_chat_id,
-                latitude=message.location.latitude,
-                longitude=message.location.longitude,
-                horizontal_accuracy=message.location.horizontal_accuracy,
-                live_period=message.location.live_period,
-                heading=message.location.heading,
-                proximity_alert_radius=message.location.proximity_alert_radius
-            )
-        
-        # Venue
-        elif message.venue:
-            await app.send_venue(
-                target_chat_id,
-                latitude=message.venue.location.latitude,
-                longitude=message.venue.location.longitude,
-                title=message.venue.title,
-                address=message.venue.address,
-                foursquare_id=message.venue.foursquare_id,
-                foursquare_type=message.venue.foursquare_type
-            )
-        
-        # Game
-        elif message.game:
-            await app.send_game(
-                target_chat_id,
-                game_short_name=message.game.short_name
-            )
-        
-        # Default: try to copy using generic method
         else:
-            await message.copy(target_chat_id)
-            
-    except Exception as e:
-        print(f"Error in copy_message_without_forward: {e}")
-        raise e
-
+            await app.send_document(target_chat_id, file_id, caption=caption)
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------------------------------------------------------------------------create link ---------------------------------------------------------------------
