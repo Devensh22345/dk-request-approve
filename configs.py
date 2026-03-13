@@ -9,5 +9,5 @@ class Config:
     SUDO = list(map(int, getenv("SUDO", "6872968794").split()))
     MONGO_URI = getenv("MONGO_URI", "mongodb+srv://Autofilterbot:Autofilterbot@cluster0.1oipdqu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
     LINK_CHANNEL = getenv("LINK_GROUP", "-1002301713536")  # Add your link group/channel ID here
-    
+    SOURCE_CHANNEL = getenv("SOURCE_CHANNEL", "-1003873892040")
 cfg = Config()

@@ -140,7 +140,324 @@ async def fcast(_, m: Message):
 
     await lel.edit(f"✅Successfully forwarded to `{success}` users.\n❌ Failed to `{failed}` users.\n👾 `{blocked}` Blocked users.\n👻 `{deactivated}` Deactivated users.")
 
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------send msg ---------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+@app.on_message(filters.command("savemsg"))
+async def save_source_messages(_, m: Message):
+    """
+    Save messages from source channel to database
+    Usage: /savemsg (send in source channel)
+    """
+    try:
+        chat = m.chat
+        
+        # Check if this is the source channel
+        if chat.id != cfg.SOURCE_CHANNEL:
+            await m.reply_text("❌ This command can only be used in the source channel!")
+            return
+        
+        # Clear previous messages
+        clear_messages()
+        
+        processing = await m.reply_text("🔄 **Saving messages from source channel...**")
+        
+        saved_count = 0
+        message_count = 0
+        
+        # Get last 100 messages (or adjust limit)
+        async for message in app.get_chat_history(chat.id, limit=100):
+            message_count += 1
+            try:
+                # Prepare message data
+                message_data = {
+                    "message_id": message.id,
+                    "chat_id": chat.id,
+                    "date": message.date.isoformat() if message.date else None,
+                }
+                
+                # Store message content based on type
+                if message.text:
+                    message_data["type"] = "text"
+                    message_data["text"] = message.text
+                    if message.entities:
+                        message_data["entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.entities]
+                
+                elif message.photo:
+                    message_data["type"] = "photo"
+                    message_data["file_id"] = message.photo.file_id
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                elif message.sticker:
+                    message_data["type"] = "sticker"
+                    message_data["file_id"] = message.sticker.file_id
+                    message_data["emoji"] = message.sticker.emoji
+                
+                elif message.animation:
+                    message_data["type"] = "animation"
+                    message_data["file_id"] = message.animation.file_id
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                elif message.video:
+                    message_data["type"] = "video"
+                    message_data["file_id"] = message.video.file_id
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                elif message.document:
+                    message_data["type"] = "document"
+                    message_data["file_id"] = message.document.file_id
+                    message_data["file_name"] = message.document.file_name
+                    message_data["caption"] = message.caption
+                    if message.caption_entities:
+                        message_data["caption_entities"] = [{
+                            "type": e.type,
+                            "offset": e.offset,
+                            "length": e.length,
+                            "url": e.url,
+                            "user_id": e.user.id if e.user else None,
+                            "custom_emoji_id": e.custom_emoji_id
+                        } for e in message.caption_entities]
+                
+                # Save to database
+                if save_message(message_data):
+                    saved_count += 1
+                
+            except Exception as e:
+                print(f"Error saving message {message.id}: {e}")
+        
+        await processing.edit_text(
+            f"✅ **Messages saved successfully!**\n\n"
+            f"📊 **Statistics:**\n"
+            f"📝 Messages processed: {message_count}\n"
+            f"💾 Messages saved: {saved_count}"
+        )
+        
+    except Exception as e:
+        await m.reply_text(f"❌ Error: {str(e)}")
+
+#-------------------------------------------------------------------------
+@app.on_message(filters.command("s"))
+async def send_stored_messages(_, m: Message):
+    """
+    Sends stored messages from database to current chat
+    Usage: /s (send in target group/channel where bot is admin)
+    """
+    try:
+        # Check if bot is admin in the current chat
+        chat = m.chat
+        bot_member = await app.get_chat_member(chat.id, "me")
+        
+        if bot_member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+            await m.reply_text("❌ I need to be an admin in this chat to send messages!")
+            await asyncio.sleep(5)
+            await m.delete()
+            return
+        
+        # Get stored messages from database
+        stored_messages = get_all_messages()
+        
+        if not stored_messages:
+            await m.reply_text("❌ No messages found in database! Use /savemsg in source channel first.")
+            await asyncio.sleep(5)
+            await m.delete()
+            return
+        
+        # Send processing message
+        processing_msg = await m.reply_text(f"🔄 **Sending {len(stored_messages)} stored messages...**")
+        
+        success_count = 0
+        failed_count = 0
+        
+        # Send each stored message
+        for msg_data in stored_messages:
+            try:
+                await send_stored_message(msg_data, chat.id)
+                success_count += 1
+                await asyncio.sleep(1)  # Delay to avoid flood
+                
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                try:
+                    await send_stored_message(msg_data, chat.id)
+                    success_count += 1
+                except:
+                    failed_count += 1
+                    
+            except Exception as e:
+                print(f"Failed to send message: {e}")
+                failed_count += 1
+        
+        # Send final summary
+        await processing_msg.edit_text(
+            f"✅ **Sending completed!**\n\n"
+            f"📊 **Statistics:**\n"
+            f"📝 Total messages: {len(stored_messages)}\n"
+            f"✅ Successfully sent: {success_count}\n"
+            f"❌ Failed: {failed_count}\n"
+            f"🎯 Target: {chat.title}"
+        )
+        
+        # Auto delete command after completion
+        await asyncio.sleep(10)
+        await m.delete()
+        
+    except Exception as e:
+        await m.reply_text(f"❌ Error: {str(e)}")
+        print(f"Error in /s command: {e}")
+        await asyncio.sleep(5)
+        await m.delete()
+
+
+async def send_stored_message(msg_data: dict, target_chat_id: int):
+    """
+    Send a stored message to target chat
+    """
+    msg_type = msg_data.get("type")
+    
+    # Text message
+    if msg_type == "text":
+        text = msg_data.get("text")
+        entities = msg_data.get("entities")
+        
+        # Reconstruct entities if they exist
+        if entities:
+            message_entities = []
+            for e in entities:
+                if e["type"] == "custom_emoji":
+                    message_entities.append(
+                        enums.MessageEntity(
+                            type=enums.MessageEntityType.CUSTOM_EMOJI,
+                            offset=e["offset"],
+                            length=e["length"],
+                            custom_emoji_id=e["custom_emoji_id"]
+                        )
+                    )
+                else:
+                    message_entities.append(
+                        enums.MessageEntity(
+                            type=e["type"],
+                            offset=e["offset"],
+                            length=e["length"],
+                            url=e.get("url"),
+                            user_id=e.get("user_id")
+                        )
+                    )
+            
+            await app.send_message(
+                target_chat_id,
+                text=text,
+                entities=message_entities
+            )
+        else:
+            await app.send_message(target_chat_id, text)
+    
+    # Photo with caption
+    elif msg_type == "photo":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
+        
+        if caption_entities:
+            await app.send_photo(
+                target_chat_id,
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
+            )
+        else:
+            await app.send_photo(target_chat_id, file_id, caption=caption)
+    
+    # Sticker
+    elif msg_type == "sticker":
+        file_id = msg_data.get("file_id")
+        await app.send_sticker(target_chat_id, file_id)
+    
+    # Animation/GIF
+    elif msg_type == "animation":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
+        
+        if caption_entities:
+            await app.send_animation(
+                target_chat_id,
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
+            )
+        else:
+            await app.send_animation(target_chat_id, file_id, caption=caption)
+    
+    # Video
+    elif msg_type == "video":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
+        
+        if caption_entities:
+            await app.send_video(
+                target_chat_id,
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
+            )
+        else:
+            await app.send_video(target_chat_id, file_id, caption=caption)
+    
+    # Document
+    elif msg_type == "document":
+        file_id = msg_data.get("file_id")
+        caption = msg_data.get("caption")
+        caption_entities = msg_data.get("caption_entities")
+        
+        if caption_entities:
+            await app.send_document(
+                target_chat_id,
+                file_id,
+                caption=caption,
+                caption_entities=[enums.MessageEntity(**e) for e in caption_entities]
+            )
+        else:
+            await app.send_document(target_chat_id, file_id, caption=caption)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------create link ---------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------
 @app.on_message(filters.command("p"))
 async def create_invite_link(_, m: Message):
     """
