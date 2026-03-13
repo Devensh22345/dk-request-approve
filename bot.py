@@ -154,11 +154,17 @@ async def create_invite_link(_, m: Message):
         
         if bot_member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
             await m.reply_text("❌ I need to be an admin in this chat to create invite links!")
+            # Auto delete command after 5 seconds
+            await asyncio.sleep(1)
+            await m.delete()
             return
         
         # Check if link channel is configured
         if not hasattr(cfg, 'LINK_CHANNEL') or not cfg.LINK_CHANNEL:
             await m.reply_text("❌ LINK_CHANNEL is not configured in configs.py!")
+            # Auto delete command after 5 seconds
+            await asyncio.sleep(1)
+            await m.delete()
             return
         
         # Get user info safely
@@ -187,6 +193,9 @@ async def create_invite_link(_, m: Message):
                 link = invite_link.invite_link
             except Exception as e:
                 await m.reply_text(f"❌ Failed to create channel invite link: {str(e)}")
+                # Auto delete command after 5 seconds
+                await asyncio.sleep(1)
+                await m.delete()
                 return
                 
         elif chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
@@ -200,9 +209,15 @@ async def create_invite_link(_, m: Message):
                 link = invite_link.invite_link
             except Exception as e:
                 await m.reply_text(f"❌ Failed to create group invite link: {str(e)}")
+                # Auto delete command after 5 seconds
+                await asyncio.sleep(1)
+                await m.delete()
                 return
         else:
             await m.reply_text("❌ This command can only be used in groups or channels!")
+            # Auto delete command after 5 seconds
+            await asyncio.sleep(1)
+            await m.delete()
             return
         
         # Get chat information
@@ -212,15 +227,10 @@ async def create_invite_link(_, m: Message):
         
         # Prepare message for link channel
         link_message = f"""
-🔗 **New Invite Link Created**
-
-📢 **Chat:** {chat_title}
-📝 **Type:** {link_type}
-🆔 **ID:** `{chat.id}`
-🌐 **Username:** {chat_username}
-👤 **Created by:** {creator_mention}
-
-**Link:** {link}
+**𝗬𝗢𝗨𝗥 𝗥𝗘𝗤𝗨𝗘𝗦𝗧𝗘𝗗 𝗔𝗡𝗜𝗠𝗘:** {chat_title}
+**𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗 𝗟𝗜𝗡𝗞:** 
+{link}
+{link}
         """
         
         # Send to link channel
@@ -231,22 +241,39 @@ async def create_invite_link(_, m: Message):
                 disable_web_page_preview=True
             )
             
+        
+            
             # Send confirmation to the user
-            await m.reply_text(
+            reply_msg = await m.reply_text(
                 f"✅ **Invite link created and sent to link channel!**\n\n"
                 f"📢 **Chat:** {chat_title}\n"
                 f"🔗 **Link:** {link}",
                 disable_web_page_preview=True
             )
             
+            # Auto delete command and reply after 10 seconds
+            await asyncio.sleep(1)
+            await m.delete()  # Delete the command message
+            await reply_msg.delete()  # Delete the reply message
+            
         except Exception as e:
             await m.reply_text(f"❌ Failed to send to link channel: {str(e)}")
+            # Auto delete command after 5 seconds
+            await asyncio.sleep(5)
+            await m.delete()
             
     except errors.ChatAdminRequired:
         await m.reply_text("❌ I need to be an admin in this chat to create invite links!")
+        # Auto delete command after 5 seconds
+        await asyncio.sleep(5)
+        await m.delete()
     except Exception as e:
-        await m.reply_text(f"❌ Error: {str(e)}")
+        error_msg = await m.reply_text(f"❌ Error: {str(e)}")
         print(f"Error in /p command: {e}")
+        # Auto delete command and error message after 5 seconds
+        await asyncio.sleep(5)
+        await m.delete()
+        await error_msg.delete()
 
 
 print("I'm Alive Now!")
